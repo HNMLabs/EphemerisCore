@@ -62,6 +62,15 @@
 
     <button id="enrollBtn">Enroll This Device</button>
     <div class="output" id="result"></div>
+
+    <div id="secrets" style="display:none; margin-top:14px;">
+      <p style="color:#fca311; margin:0 0 10px 0;">Save these now. They are shown only once.</p>
+      <label style="display:block; font-size:13px; margin-bottom:4px;">Device Code (to add other devices)</label>
+      <div id="codeBox" style="font-size:22px; letter-spacing:3px; padding:10px 12px; background:#0f172a; border-radius:8px;"></div>
+      <label style="display:block; font-size:13px; margin:12px 0 4px;">Recovery Phrase (to recover lost access)</label>
+      <div id="phraseBox" style="font-size:16px; padding:10px 12px; background:#0f172a; border-radius:8px; line-height:1.5;"></div>
+      <button id="continueBtn">I saved these — Continue</button>
+    </div>
   </div>
 
   <script>
@@ -90,11 +99,6 @@
       }
 
       const seal = randomHex(64);
-      localStorage.setItem(deviceSealKey(sessionUser), seal);
-      localStorage.setItem(enrolledKey(sessionUser), "1");
-      // Clean legacy keys to avoid cross-user leakage
-      localStorage.removeItem(legacySealKey());
-      localStorage.removeItem(legacyEnrolledKey());
 
       const res = await fetch("login.php", {
         method: "POST",
@@ -114,8 +118,23 @@
         return;
       }
 
-      document.getElementById("result").textContent = "Device sealed successfully. Redirecting...";
-      setTimeout(() => { window.location.href = "panel.html"; }, 800);
+      // Persist the seal locally only after the server accepted it.
+      localStorage.setItem(deviceSealKey(sessionUser), seal);
+      localStorage.setItem(enrolledKey(sessionUser), "1");
+      // Clean legacy keys to avoid cross-user leakage
+      localStorage.removeItem(legacySealKey());
+      localStorage.removeItem(legacyEnrolledKey());
+
+      document.getElementById("result").textContent = "Device sealed successfully.";
+      // Show the one-time device code + recovery phrase.
+      document.getElementById("enrollBtn").style.display = "none";
+      document.getElementById("codeBox").textContent = data.deviceCode || "(unavailable)";
+      document.getElementById("phraseBox").textContent = data.recoveryPhrase || "(unavailable)";
+      document.getElementById("secrets").style.display = "block";
+    });
+
+    document.getElementById("continueBtn").addEventListener("click", () => {
+      window.location.href = "panel.html";
     });
   </script>
 </body>

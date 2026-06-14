@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <title>Recover Access - Planetary Distance Auth</title>
+  <style>
+    :root {
+      --bg1: #0d1b2a;
+      --card: #22324d;
+      --accent: #fca311;
+      --text: #e0e1dd;
+      --muted: #9fb0c2;
+    }
+    body {
+      margin: 0;
+      font-family: "Georgia", "Times New Roman", serif;
+      background: radial-gradient(circle at 20% 20%, #1b2b4b, var(--bg1)) no-repeat fixed;
+      color: var(--text);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+    }
+    .card {
+      background: linear-gradient(160deg, var(--card), #152238);
+      padding: 28px 30px;
+      border-radius: 14px;
+      width: min(460px, 92vw);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    h1 { margin: 0 0 8px 0; font-size: 22px; letter-spacing: 0.5px; }
+    p { margin: 0 0 18px 0; color: var(--muted); font-size: 14px; line-height: 1.4; }
+    label { display: block; font-size: 14px; margin-top: 10px; margin-bottom: 6px; }
+    input, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: #0f172a;
+      color: var(--text);
+      font-size: 14px;
+      box-sizing: border-box;
+      font-family: inherit;
+    }
+    button {
+      width: 100%;
+      margin-top: 14px;
+      padding: 10px 12px;
+      border: none;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #111827;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .note { margin-top: 12px; font-size: 12px; color: var(--muted); }
+    .output {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 8px;
+      font-size: 13px;
+      min-height: 24px;
+    }
+    a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Recover Access</h1>
+    <p>Enter your recovery phrase to reset device access. After recovery you will enroll this device again and receive a new device code and recovery phrase.</p>
+
+    <label>Username</label>
+    <input id="username" type="text" placeholder="user" />
+
+    <label>Recovery Phrase</label>
+    <textarea id="recovery" rows="2" placeholder="six words separated by spaces"></textarea>
+
+    <label>New Password (optional)</label>
+    <input id="newPassword" type="password" placeholder="leave blank to keep current" />
+
+    <button id="recoverBtn">Recover</button>
+
+    <div class="note"><a href="index.html">Back to login</a></div>
+    <div class="output" id="result"></div>
+  </div>
+
+  <script>
+    function deviceSealKey(user) { return "user_device_seal:" + user.toLowerCase(); }
+    function enrolledKey(user) { return "device_enrolled:" + user.toLowerCase(); }
+
+    document.getElementById("recoverBtn").addEventListener("click", async () => {
+      const user = document.getElementById("username").value.trim();
+      const recovery = document.getElementById("recovery").value;
+      const newPassword = document.getElementById("newPassword").value;
+      const out = document.getElementById("result");
+
+      if (!user || !recovery.trim()) {
+        out.textContent = "Enter username and recovery phrase.";
+        return;
+      }
+
+      const res = await fetch("login.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "recover", username: user, recovery: recovery, newPassword: newPassword })
+      });
+      const data = await res.json();
+      if (!data || !data.ok) {
+        out.textContent = data && data.message ? data.message : "Recovery failed";
+        return;
+      }
+
+      // Re-bootstrap: clear local device state and enroll this device fresh.
+      localStorage.setItem("sessionUser", user);
+      localStorage.setItem("sessionToken", data.token);
+      localStorage.setItem(enrolledKey(user), "0");
+      localStorage.removeItem(deviceSealKey(user));
+      out.textContent = "Recovery successful. Redirecting to device enrollment...";
+      setTimeout(() => { window.location.href = "welcome.html"; }, 800);
+    });
+  </script>
+</body>
+</html>

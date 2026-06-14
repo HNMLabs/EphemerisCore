@@ -1,5 +1,13 @@
 <?php
+// Debug tool. Allows overwriting a device seal — restricted to localhost only.
 header('Content-Type: text/plain; charset=utf-8');
+
+$remote = $_SERVER['REMOTE_ADDR'] ?? '';
+if (php_sapi_name() !== 'cli' && !in_array($remote, ['127.0.0.1', '::1'], true)) {
+    http_response_code(403);
+    echo "Forbidden\n";
+    exit;
+}
 
 $dbPath = __DIR__ . DIRECTORY_SEPARATOR . 'auth.db';
 try {
@@ -22,12 +30,22 @@ if (!preg_match('/^[0-9a-f]{64}$/', $seal)) {
     exit;
 }
 
-$stmt = $pdo->prepare('UPDATE users SET seal = :s WHERE username = :u');
-$stmt->execute([':s' => $seal, ':u' => $username]);
-
-if ($stmt->rowCount() === 0) {
+$chk = $pdo->prepare('SELECT id FROM users WHERE username = :u LIMIT 1');
+$chk->execute([':u' => $username]);
+if (!$chk->fetch()) {
     echo "User not found\n";
     exit;
 }
 
-echo "Seal updated for user: {$username}\n";
+$pdo->exec('CREATE TABLE IF NOT EXISTS device_seals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    seal TEXT NOT NULL,
+    label TEXT,
+    created_at TEXT NOT NULL
+)');
+
+$stmt = $pdo->prepare('INSERT INTO device_seals (username, seal, label, created_at) VALUES (:u, :s, :l, :c)');
+$stmt->execute([':u' => $username, ':s' => $seal, ':l' => 'manual', ':c' => date('c')]);
+
+echo "Device seal added for user: {$username}\n";

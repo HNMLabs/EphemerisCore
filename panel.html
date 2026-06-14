@@ -72,61 +72,35 @@
 <body>
   <div class="card">
     <h1>User Panel</h1>
-    <p>Ghost Seal enrollment is managed here.</p>
+    <p>This device is enrolled. Use your device code to add new devices, or your recovery phrase if you lose access.</p>
 
-    <button id="enrollBtn">Enroll This Device</button>
     <button id="logoutBtn">Logout</button>
 
-    <div class="note">This device will get a 64-char seal stored in localStorage.</div>
+    <div class="note">To add another device, log in there and enter your 8-digit device code.</div>
     <div class="output" id="result"></div>
   </div>
 
   <script>
-    function randomHex(len) {
-      const bytes = new Uint8Array(len / 2);
-      crypto.getRandomValues(bytes);
-      return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
-    }
-
-    function deviceSealKey(user) { return "user_device_seal:" + user.toLowerCase(); }
-    function enrolledKey(user) { return "device_enrolled:" + user.toLowerCase(); }
-
     const sessionUser = localStorage.getItem("sessionUser") || "";
     const sessionToken = localStorage.getItem("sessionToken") || "";
 
     if (!sessionUser || !sessionToken) {
       document.getElementById("result").textContent = "No active session. Please login first.";
-    }
-
-    document.getElementById("enrollBtn").addEventListener("click", async () => {
-      if (!sessionUser || !sessionToken) {
-        document.getElementById("result").textContent = "No active session. Please login first.";
-        return;
-      }
-
-      const seal = randomHex(64);
-      localStorage.setItem(deviceSealKey(sessionUser), seal);
-      localStorage.setItem(enrolledKey(sessionUser), "1");
-
-      const res = await fetch("login.php", {
+    } else {
+      // Validate the session server-side; bounce to login if expired/invalid.
+      fetch("login.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "enroll_device",
-          username: sessionUser,
-          token: sessionToken,
-          seal: seal
-        })
-      });
-
-      const data = await res.json();
-      if (!data || !data.ok) {
-        document.getElementById("result").textContent = data && data.message ? data.message : "Enrollment failed";
-        return;
-      }
-
-      document.getElementById("result").textContent = data.message;
-    });
+        cache: "no-store",
+        body: JSON.stringify({ action: "verify_session", username: sessionUser, token: sessionToken })
+      }).then(r => r.json()).then(d => {
+        if (!d || !d.ok) {
+          localStorage.removeItem("sessionUser");
+          localStorage.removeItem("sessionToken");
+          window.location.href = "index.html";
+        }
+      }).catch(() => {});
+    }
 
     document.getElementById("logoutBtn").addEventListener("click", () => {
       localStorage.removeItem("sessionUser");

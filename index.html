@@ -109,7 +109,14 @@
 
     <button id="loginBtn">Login</button>
 
+    <div id="deviceAuth" style="display:none; margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.12);">
+      <label>Device Code (8 digits)</label>
+      <input id="deviceCode" type="text" inputmode="numeric" maxlength="8" placeholder="00000000" />
+      <button id="authorizeBtn">Authorize This Device</button>
+    </div>
+
     <div class="note">No account? <a href="register.html">Create one</a></div>
+    <div class="note">Lost your device? <a href="recover.html">Recover access</a></div>
     <div class="output" id="result"></div>
   </div>
 
@@ -144,26 +151,57 @@
       return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
     }
 
+    function randomHex(len) {
+      const bytes = new Uint8Array(len / 2);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
     function deviceSealKey(user) { return "user_device_seal:" + user.toLowerCase(); }
     function enrolledKey(user) { return "device_enrolled:" + user.toLowerCase(); }
     function legacySealKey() { return "user_device_seal"; }
     function legacyEnrolledKey() { return "device_enrolled"; }
 
-    document.getElementById("loginBtn").addEventListener("click", async () => {
-      const user = document.getElementById("username").value.trim();
-      const pass = document.getElementById("password").value;
-      const planet = document.getElementById("planet").value;
-      const pin = document.getElementById("pin").value.trim();
-      const ts = Math.floor(Date.now() / 1000);
+    const $ = (id) => document.getElementById(id);
+    const show = (msg) => { $("result").textContent = msg; };
 
-      if (!user || !pass || !pin) {
-        document.getElementById("result").textContent = "Enter username, password, and PIN.";
-        return;
+    function readForm() {
+      return {
+        user: $("username").value.trim(),
+        pass: $("password").value,
+        planet: $("planet").value,
+        pin: $("pin").value.trim()
+      };
+    }
+
+    // Build a credential hash for the current time. seal="" => password-only.
+    async function buildHash(pass, planet, pin, seal) {
+      const ts = Math.floor(Date.now() / 1000);
+      const shiftedTs = ts - parseInt(pin, 10) * 60;
+      const distFixed = planetDistanceKm(planet, shiftedTs).toFixed(3);
+      const hash = await sha512Hex(pass + distFixed + seal);
+      return { ts, hash };
+    }
+
+    function onLoginSuccess(user, data) {
+      localStorage.setItem("sessionUser", user);
+      localStorage.setItem("sessionToken", data.token);
+      if (data.needsEnroll) {
+        localStorage.setItem(enrolledKey(user), "0");
+        localStorage.removeItem(deviceSealKey(user));
+        window.location.href = "welcome.html";
+      } else {
+        localStorage.setItem(enrolledKey(user), "1");
+        window.location.href = "panel.html";
       }
-      if (!/^\d{4}$/.test(pin)) {
-        document.getElementById("result").textContent = "PIN must be exactly 4 digits.";
-        return;
-      }
+    }
+
+    $("loginBtn").addEventListener("click", async () => {
+      const { user, pass, planet, pin } = readForm();
+      $("deviceAuth").style.display = "none";
+
+      if (!user || !pass || !pin) { show("Enter username, password, and PIN."); return; }
+      if (!/^\d{4}$/.test(pin)) { show("PIN must be exactly 4 digits."); return; }
 
       // Migrate legacy keys (single-key storage) to per-user keys if needed
       const legacySeal = localStorage.getItem(legacySealKey());
@@ -175,45 +213,49 @@
         localStorage.setItem(enrolledKey(user), legacyEnrolled);
       }
 
-      const shiftSeconds = parseInt(pin, 10) * 60;
-      const shiftedTs = ts - shiftSeconds;
-      const dist = planetDistanceKm(planet, shiftedTs);
-      const distFixed = dist.toFixed(3); // match server precision
-
       const enrolled = localStorage.getItem(enrolledKey(user)) === "1";
       const seal = enrolled ? (localStorage.getItem(deviceSealKey(user)) || "") : "";
-      const payload = pass + distFixed + seal;
-      const hash = await sha512Hex(payload);
+      const { ts, hash } = await buildHash(pass, planet, pin, seal);
 
       const res = await fetch("login.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({
-          username: user,
-          planet: planet,
-          pin: pin,
-          ts: ts,
-          hash: hash
-        })
+        body: JSON.stringify({ username: user, planet, pin, ts, hash })
       });
-
       const data = await res.json();
-      if (!data || !data.ok) {
-        document.getElementById("result").textContent = data && data.message ? data.message : "Login failed";
+
+      if (data && data.ok) { onLoginSuccess(user, data); return; }
+      if (data && data.needsDeviceAuth) {
+        show(data.message || "New device. Enter your device code.");
+        $("deviceAuth").style.display = "block";
         return;
       }
+      show(data && data.message ? data.message : "Login failed");
+    });
 
-      localStorage.setItem("sessionUser", user);
-      localStorage.setItem("sessionToken", data.token);
-      if (data.needsEnroll) {
-        localStorage.setItem(enrolledKey(user), "0");
-        localStorage.removeItem(deviceSealKey(user));
-        window.location.href = "welcome.html";
-      } else {
-        localStorage.setItem(enrolledKey(user), "1");
-        window.location.href = "panel.html";
-      }
+    // Authorize a new device with the 8-digit code (password proven again).
+    $("authorizeBtn").addEventListener("click", async () => {
+      const { user, pass, planet, pin } = readForm();
+      const code = $("deviceCode").value.replace(/\s+/g, "");
+      if (!/^\d{8}$/.test(code)) { show("Device code must be 8 digits."); return; }
+
+      const seal = randomHex(64);
+      const { ts, hash } = await buildHash(pass, planet, pin, ""); // password-only proof
+
+      const res = await fetch("login.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "authorize_device", username: user, planet, pin, ts, hash, code, seal })
+      });
+      const data = await res.json();
+      if (!data || !data.ok) { show(data && data.message ? data.message : "Authorization failed"); return; }
+
+      // Persist the new device seal only after the server accepted it.
+      localStorage.setItem(deviceSealKey(user), seal);
+      localStorage.setItem(enrolledKey(user), "1");
+      onLoginSuccess(user, data);
     });
   </script>
 </body>

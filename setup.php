@@ -17,7 +17,34 @@ try {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL,
+        seal TEXT,
+        device_code_hash TEXT,
+        recovery_hash TEXT,
         created_at TEXT NOT NULL
+    )');
+    $pdo->exec('CREATE TABLE IF NOT EXISTS device_seals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        seal TEXT NOT NULL,
+        label TEXT,
+        created_at TEXT NOT NULL
+    )');
+    $pdo->exec('CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        token TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )');
+    $pdo->exec('CREATE TABLE IF NOT EXISTS used_hashes (
+        hash TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL
+    )');
+    $pdo->exec('CREATE TABLE IF NOT EXISTS login_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT \'login\',
+        created_at INTEGER NOT NULL
     )');
 
     $seed = [
